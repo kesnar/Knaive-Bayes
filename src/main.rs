@@ -226,8 +226,11 @@ fn main() {
 					let mut precision = 0.0;
 					for i in 1..11 {
 						println!("Now starting fold number {}", i);
-						//MUST CHANGE TO REFLECT LINUX AND WINDOWS!!!!!!
-						let (test,train):(_,Vec<_>)=used.clone().into_iter().partition(|x| x.as_path().display().to_string().contains(&format!("part{}\\",i)));
+						let (test,train):(_,Vec<_>) = if cfg!(windows) {
+							used.clone().into_iter().partition(|x| x.as_path().display().to_string().contains(&format!("part{}\\",i)))
+						} else {// if cfg!(unix) {
+							used.clone().into_iter().partition(|x| x.as_path().display().to_string().contains(&format!("part{}/",i)))
+						};
 						let probabilities = learn_naive_bayes(train);
 						let (r,p) = test_naive_bayes(test, &probabilities);
 						recall += r;
