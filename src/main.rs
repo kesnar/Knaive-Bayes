@@ -1,9 +1,15 @@
+/// kesnar-naive Bayes (Knaive-Bayes) is a simple implementation of the Naive Bayes algorithm in Rust
+/// Written by kesnar (Panagiotis Famelis) in December 2020
+/// Published under CC BY-NC-SA 4.0 (Attribution-NonCommercial-ShareAlike 4.0 International)
+
 use std::{fs, env};
 use std::path::{Path, PathBuf};
 use std::error::Error;
 use core::hash::{Hasher, BuildHasherDefault};
 use std::collections::{HashMap, HashSet};
 
+/// The identityHasher is the identity function f(x) = x.
+/// The identity hash has been selected for speed reasons, as the Hash is used instead of a sparse Vector
 #[derive(Debug, Clone, Copy, Default)]
 struct IdentityHasher(usize);
 
@@ -23,6 +29,7 @@ impl Hasher for IdentityHasher {
 
 type BuildIdentityHasher = BuildHasherDefault<IdentityHasher>;
 
+/// A struct for the collection of the probabilities needed for the Naive Bayes Classification.
 struct NaiveBayesProbabilities {
 	spam: f64,
 	legit: f64,
@@ -30,6 +37,8 @@ struct NaiveBayesProbabilities {
 	word_legit: HashMap<u32, f64, BuildIdentityHasher>
 }
 
+/// Recursive function to traverse the directorirs below a directory in a filesystem.
+/// Returns error in case something went wrong.
 fn visit_dirs(dir: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
 	let mut ret = Vec::new();
 	if dir.is_dir() {
@@ -46,6 +55,9 @@ fn visit_dirs(dir: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
 	Ok(ret)
 }
 
+/// Function that opens and reads a file, returning a vector with the words in u32.
+/// If there are words not in numeric format (i.e. "Subject:"), it discards them.
+/// Returns error in case something went wrong.
 fn file_to_array(filename: &PathBuf) -> Result<Vec<u32>, Box<dyn Error>> {
 	let s = fs::read_to_string(filename)?;
 	let ret: Vec<u32> = s.split_whitespace()
@@ -54,6 +66,11 @@ fn file_to_array(filename: &PathBuf) -> Result<Vec<u32>, Box<dyn Error>> {
     Ok(ret)
 }
 
+/// The function that calculates the Naive Bayes probabilities.
+/// It takes as input a directory containing the data set, 
+///  in format as described in http://www.aueb.gr/users/ion/data/PU123ACorpora.tar.gz
+/// In case of error in some files, it disregards that file, prints and error message 
+///  and continues to the next.
 fn learn_naive_bayes(data_set: Vec<PathBuf>) -> NaiveBayesProbabilities {
 	let mut total = 0;
 	let mut spam = 0;
@@ -69,7 +86,6 @@ fn learn_naive_bayes(data_set: Vec<PathBuf>) -> NaiveBayesProbabilities {
 	for doc in data_set.iter() {
 		match file_to_array(doc) {
 			Ok(example) => {
-				//println!("{:?}", doc);
 				let is_spam;
 				total += 1;
 				if doc.as_path().display().to_string().contains("spmsg") {
@@ -83,11 +99,13 @@ fn learn_naive_bayes(data_set: Vec<PathBuf>) -> NaiveBayesProbabilities {
 				for word in example {
 					word_set.insert(word);
 					if is_spam {
-						*occurences_spam.entry(word).or_insert(0) += 1;
+						// Increment the occurences by 1 or insert a new entry for the word with 1 occurence
+						*occurences_spam.entry(word).or_insert(1) += 1;
 						n_spam += 1;
 					}
 					else {
-						*occurences_legit.entry(word).or_insert(0) += 1;
+						// Increment the occurences by 1 or insert a new entry for the word with 1 occurence
+						*occurences_legit.entry(word).or_insert(1) += 1;
 						n_legit += 1;
 					}
 				}
@@ -106,7 +124,6 @@ fn learn_naive_bayes(data_set: Vec<PathBuf>) -> NaiveBayesProbabilities {
 	let mut p_word_legit: HashMap<u32, f64, BuildIdentityHasher> = HashMap::default();
 	
 	for word in word_set {
-		//println!("{}", word);
 		if let Some(x) = occurences_spam.get(&word) {
 			p_word_spam.insert(word, (1 + x) as f64 / spam_divisor);
 		} else {
@@ -120,13 +137,13 @@ fn learn_naive_bayes(data_set: Vec<PathBuf>) -> NaiveBayesProbabilities {
 		}
 	}
 
-	//println!("{}, {}", p_spam, p_legit);
-	//println!("{:?}", p_word_spam);
-	//println!("{:?}", p_word_legit);
-
 	NaiveBayesProbabilities{spam: p_spam, legit: p_legit, word_spam: p_word_spam, word_legit: p_word_legit}
 }
 
+/// Function that takes a filename and the Naive Bayes Probabilities and clasifies it as spam or not (boolean).
+/// Returns error in case something went wrong.
+/// As propabilities are < 1, multiplying them results on really small numbers close to zero, that are not
+///  handled well. As such logarithms are used and the multiplication is trasformed to a sum of log10.
 fn classified_as_spam(filename: &PathBuf, p: &NaiveBayesProbabilities) -> Result<bool, Box<dyn Error>> {
 	match file_to_array(filename) {
 		Ok(doc) => {
@@ -134,16 +151,16 @@ fn classified_as_spam(filename: &PathBuf, p: &NaiveBayesProbabilities) -> Result
 			let mut legit = 0.0;
 			for word in doc {
 				if let Some(x) = p.word_spam.get(&word) {
-					//print!("{}\n", x);
+					// Using log10 to acquire sum instead of multiplying. 
 					spam = spam + x.log10();
 				}
 				if let Some(x) = p.word_legit.get(&word) {
-					//println!("{}", x);
+					// Using log10 to acquire sum instead of multiplying.
 					legit = legit + x.log10();
 				}
 			}
 
-			//println!("spam:{}\nlegit:{}",spam, legit);
+			// Using log10 to acquire sum instead of multiplying.
 			if (spam + p.spam.log10()) >= (legit+p.legit.log10()) {
 				Ok(true)
 			} else {
@@ -156,6 +173,8 @@ fn classified_as_spam(filename: &PathBuf, p: &NaiveBayesProbabilities) -> Result
 	}
 }
 
+/// Function that takes a directory and clasifies each mail in it as spam or legit.
+/// Returns spam recall and spam precision.
 fn test_naive_bayes(data_set: Vec<PathBuf>, p: &NaiveBayesProbabilities) -> (f64, f64) {
 	let mut true_positive = 0;
 	let mut false_positive = 0;
@@ -180,6 +199,7 @@ fn test_naive_bayes(data_set: Vec<PathBuf>, p: &NaiveBayesProbabilities) -> (f64
 				}
 				else{
 					// Classified as legit and is legit
+					// Variable is not used. Here for completness.
 					_true_negative += 1;
 				}
 			}
@@ -187,21 +207,17 @@ fn test_naive_bayes(data_set: Vec<PathBuf>, p: &NaiveBayesProbabilities) -> (f64
 		}
 	}
 
-	//println!("t+{}\nf+{}\nf-{}\nt-{}\ntotal{}", true_positive, false_positive, false_negative, true_negative, true_positive+false_positive+false_negative+true_negative);
 	(true_positive as f64 / (true_positive + false_negative) as f64,
 	 true_positive as f64 / (true_positive + false_positive) as f64)
 
 }
 
 fn main() {
-
 	let args: Vec<String> = env::args().collect();
 
 	if args.len() == 2 {
 		let path = Path::new(&args[1]);
-
 		if path.is_dir() {
-			
 			match visit_dirs(path) {
 				Ok(filenames) => {
 					let (_unused,used):(_,Vec<_>)=filenames.into_iter().partition(|x| x.as_path().display().to_string().contains("unused"));
@@ -216,7 +232,6 @@ fn main() {
 						let (r,p) = test_naive_bayes(test, &probabilities);
 						recall += r;
 						precision += p;
-						//println!("Spam recall: {}\nSpam precision: {}", r, p);
 					}
 					recall = recall / 10.0;
 					precision = precision / 10.0;
@@ -232,35 +247,3 @@ fn main() {
 		println!("arg1: dataset directory");
 	}
 }
-
-/*
-	For doc in data_set{
-		total ++ (=spam+legit)
-		if spam {
-			spam ++
-		}
-		else {
-			legit ++
-		}
-		for word in doc {
-			word_set.insert(word);
-			if spam{
-				occurences_spam[word]++
-				n_spam++
-			}
-			if legit{
-				occurences_legit[word]++
-				n_legit++
-			}
-			total_words++
-		}
-	}
-
-	P[spam] = spam / total
-	P[legit] = legit / total
-
-	for word in word_set{
-		P_spam[word] = (occurences_spam[word] + 1) / (n_spam + total_words)
-		P_legit[word] = (occurences_legit[word] + 1) / (n_legit + total_words)
-	}
-*/	
